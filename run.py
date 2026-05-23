@@ -1,33 +1,40 @@
 import os
-import socket
-import random
-import base64
-from io import BytesIO
-
-# =========================
-# AUTO INSTALL (KALI SAFE)
-# =========================
-def install():
-    os.system("python3 -m venv venv")
-    os.system("venv/bin/pip install --upgrade pip")
-    os.system("venv/bin/pip install flask flask-socketio pynput qrcode pillow")
-
-if not os.path.exists("venv"):
-    print("📦 Instalando ambiente...")
-    install()
-
-# ativa ambiente virtual automaticamente via exec python
 import sys
-sys.path.insert(0, "venv/lib/python3.*/site-packages")
+
+VENV = "venv"
+
+# =========================
+# 1. CRIAR VENV SE NÃO EXISTE
+# =========================
+if not os.path.exists(VENV):
+    print("📦 Criando ambiente virtual...")
+    os.system("python3 -m venv venv")
+
+# =========================
+# 2. INSTALAR DEPENDÊNCIAS NO VENV
+# =========================
+if sys.prefix == sys.base_prefix:
+    print("📦 Instalando dependências no venv...")
+
+    os.system(f"{VENV}/bin/pip install --upgrade pip")
+    os.system(f"{VENV}/bin/pip install flask flask-socketio pynput qrcode pillow")
+
+    print("🚀 Reiniciando dentro do venv...\n")
+    os.execv(f"{VENV}/bin/python", [f"{VENV}/bin/python"] + sys.argv)
+
+# =========================
+# 3. AGORA ESTAMOS NO VENV
+# =========================
 
 from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit
 from pynput.mouse import Controller, Button
+import socket
+import random
 import qrcode
+from io import BytesIO
+import base64
 
-# =========================
-# APP
-# =========================
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -35,7 +42,7 @@ mouse = Controller()
 clients = set()
 
 PASSWORD = str(random.randint(1000, 9999))
-SENS = 1.6
+SENS = 1.5
 
 # =========================
 # IP
@@ -48,16 +55,16 @@ def get_ip():
     return ip
 
 # =========================
-# QR CODE
+# QR
 # =========================
 def make_qr(data):
-    qr = qrcode.make(data)
+    img = qrcode.make(data)
     buf = BytesIO()
-    qr.save(buf, format="PNG")
+    img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 # =========================
-# INTERFACE
+# UI
 # =========================
 @app.route("/")
 def home():
@@ -67,56 +74,21 @@ def home():
 
     return render_template_string(f"""
     <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Mouse Remote</title>
-        <style>
-            body {{
-                margin:0;
-                background:#000;
-                color:#0f0;
-                font-family: monospace;
-                text-align:center;
-            }}
+    <body style="background:#000;color:#0f0;text-align:center;font-family:monospace;">
+        <h2>🖱 Mouse Remote</h2>
 
-            .box {{
-                width:360px;
-                margin:40px auto;
-                padding:15px;
-                border:2px solid #0f0;
-            }}
+        <p><b>IP:</b> {ip}:5000</p>
+        <p><b>Senha:</b> {PASSWORD}</p>
 
-            .pad {{
-                height:200px;
-                background:#111;
-                margin:10px 0;
-            }}
+        <img src="data:image/png;base64,{qr}" width="150">
 
-            input, button {{
-                width:90%;
-                padding:10px;
-                margin:5px;
-                background:#000;
-                color:#0f0;
-                border:1px solid #0f0;
-            }}
-        </style>
-    </head>
+        <br><br>
+        <input id="pass" type="password" placeholder="senha">
+        <button onclick="connect()">Conectar</button>
 
-    <body>
-        <div class="box">
-            <h3>🖱 Mouse Remote</h3>
-            <p>Senha: {PASSWORD}</p>
+        <div id="pad" style="width:300px;height:200px;background:#111;margin:20px auto;"></div>
 
-            <img src="data:image/png;base64,{qr}" width="160">
-
-            <input id="pass" type="password" placeholder="senha">
-            <button onclick="connect()">Conectar</button>
-
-            <div class="pad" id="pad"></div>
-
-            <button onclick="clickMouse()">CLICK</button>
-        </div>
+        <button onclick="clickMouse()">CLICK</button>
 
         <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
@@ -187,8 +159,7 @@ def auth(data):
 def move(data):
     if request.sid not in clients:
         return
-
-    mouse.move(float(data.get("x",0)), float(data.get("y",0)))
+    mouse.move(float(data.get("x", 0)), float(data.get("y", 0)))
 
 @socketio.on("click")
 def click():
@@ -199,6 +170,6 @@ def click():
 # START
 # =========================
 if __name__ == "__main__":
-    print("🚀 Mouse Remote iniciado")
+    print("🚀 Mouse Remote rodando")
     print(f"🔐 Senha: {PASSWORD}")
     socketio.run(app, host="0.0.0.0", port=5000)
