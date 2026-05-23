@@ -4,36 +4,24 @@ import sys
 VENV = "venv"
 
 # =========================
-# 1. CRIAR VENV SE NÃO EXISTE
+# VENV AUTO
 # =========================
 if not os.path.exists(VENV):
-    print("📦 Criando ambiente virtual...")
+    print("📦 criando venv...")
     os.system("python3 -m venv venv")
 
-# =========================
-# 2. INSTALAR DEPENDÊNCIAS NO VENV
-# =========================
 if sys.prefix == sys.base_prefix:
-    print("📦 Instalando dependências no venv...")
-
-    os.system(f"{VENV}/bin/pip install --upgrade pip")
-    os.system(f"{VENV}/bin/pip install flask flask-socketio pynput qrcode pillow")
-
-    print("🚀 Reiniciando dentro do venv...\n")
+    print("📦 entrando no venv...")
+    os.system(f"{VENV}/bin/pip install flask flask-socketio pynput")
     os.execv(f"{VENV}/bin/python", [f"{VENV}/bin/python"] + sys.argv)
 
 # =========================
-# 3. AGORA ESTAMOS NO VENV
+# APP
 # =========================
-
 from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit
 from pynput.mouse import Controller, Button
-import socket
 import random
-import qrcode
-from io import BytesIO
-import base64
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -42,103 +30,91 @@ mouse = Controller()
 clients = set()
 
 PASSWORD = str(random.randint(1000, 9999))
-SENS = 1.5
 
 # =========================
-# IP
-# =========================
-def get_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("8.8.8.8", 80))
-    ip = s.getsockname()[0]
-    s.close()
-    return ip
-
-# =========================
-# QR
-# =========================
-def make_qr(data):
-    img = qrcode.make(data)
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-# =========================
-# UI
+# UI LIMPA
 # =========================
 @app.route("/")
 def home():
-    ip = get_ip()
-    url = f"http://{ip}:5000"
-    qr = make_qr(url)
-
     return render_template_string(f"""
     <html>
-    <body style="background:#000;color:#0f0;text-align:center;font-family:monospace;">
-        <h2>🖱 Mouse Remote</h2>
+    <body style="
+        margin:0;
+        background:#000;
+        overflow:hidden;
+        color:#0f0;
+        font-family:monospace;
+    ">
 
-        <p><b>IP:</b> {ip}:5000</p>
-        <p><b>Senha:</b> {PASSWORD}</p>
+    <div style="
+        width:100vw;
+        height:100vh;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        flex-direction:column;
+    ">
 
-        <img src="data:image/png;base64,{qr}" width="150">
+        <h3 style="opacity:0.6;">🖱 MOUSE REMOTO</h3>
+        <p style="opacity:0.4;">Senha: {PASSWORD}</p>
 
-        <br><br>
-        <input id="pass" type="password" placeholder="senha">
-        <button onclick="connect()">Conectar</button>
+        <!-- TOUCHPAD -->
+        <div id="pad"
+            style="
+                width:95vw;
+                height:75vh;
+                background:#050505;
+                border:2px solid #0f0;
+            ">
+        </div>
 
-        <div id="pad" style="width:300px;height:200px;background:#111;margin:20px auto;"></div>
+        <p style="opacity:0.3;">toque e arraste | duplo toque = clique</p>
 
-        <button onclick="clickMouse()">CLICK</button>
+    </div>
 
-        <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
-        <script>
-            let socket;
-            let ok = false;
-            let lx = 0, ly = 0;
+    <script>
+        let socket = io();
+        let ok = false;
 
-            function connect() {{
-                socket = io();
+        socket.emit("auth", {{password:"{PASSWORD}"}});
 
-                socket.emit("auth", {{
-                    password: document.getElementById("pass").value
-                }});
+        socket.on("ok", () => ok = true);
 
-                socket.on("ok", () => {{
-                    ok = true;
-                    alert("Conectado");
-                }});
+        let pad = document.getElementById("pad");
 
-                socket.on("fail", () => alert("Senha errada"));
+        let lx = 0, ly = 0;
+        let lastTap = 0;
+
+        pad.addEventListener("touchstart", e => {{
+            let t = e.touches[0];
+            lx = t.clientX;
+            ly = t.clientY;
+
+            // DETECTA DOUBLE TAP
+            let now = Date.now();
+            if (now - lastTap < 300) {{
+                socket.emit("click", {{button:"left"}});
             }}
+            lastTap = now;
+        }});
 
-            const pad = document.getElementById("pad");
+        pad.addEventListener("touchmove", e => {{
+            if(!ok) return;
 
-            pad.addEventListener("touchstart", e => {{
-                const t = e.touches[0];
-                lx = t.clientX;
-                ly = t.clientY;
-            }});
+            let t = e.touches[0];
 
-            pad.addEventListener("touchmove", e => {{
-                if(!ok) return;
-                e.preventDefault();
+            let dx = t.clientX - lx;
+            let dy = t.clientY - ly;
 
-                const t = e.touches[0];
+            lx = t.clientX;
+            ly = t.clientY;
 
-                let dx = (t.clientX - lx) * {SENS};
-                let dy = (t.clientY - ly) * {SENS};
+            socket.emit("move", {{x:dx, y:dy}});
+        }});
+    </script>
 
-                lx = t.clientX;
-                ly = t.clientY;
-
-                socket.emit("move", {{x: dx, y: dy}});
-            }});
-
-            function clickMouse() {{
-                if(socket) socket.emit("click");
-            }}
-        </script>
     </body>
     </html>
     """)
@@ -151,7 +127,7 @@ def auth(data):
     if data.get("password") == PASSWORD:
         clients.add(request.sid)
         emit("ok")
-        print("✔ Conectado")
+        print("✔ conectado")
     else:
         emit("fail")
 
@@ -159,10 +135,10 @@ def auth(data):
 def move(data):
     if request.sid not in clients:
         return
-    mouse.move(float(data.get("x", 0)), float(data.get("y", 0)))
+    mouse.move(float(data["x"]), float(data["y"]))
 
 @socketio.on("click")
-def click():
+def click(data):
     if request.sid in clients:
         mouse.click(Button.left, 1)
 
@@ -170,6 +146,7 @@ def click():
 # START
 # =========================
 if __name__ == "__main__":
-    print("🚀 Mouse Remote rodando")
-    print(f"🔐 Senha: {PASSWORD}")
+    print("🚀 rodando mouse remoto")
+    print("🔐 senha:", PASSWORD)
     socketio.run(app, host="0.0.0.0", port=5000)
+        
